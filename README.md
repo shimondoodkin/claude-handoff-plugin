@@ -39,14 +39,14 @@ git clone https://github.com/shimondoodkin/claude-handoff-plugin.git
 
 ## Usage
 
-### `/tokens`
+### `/handoff:tokens`
 
 ```text
 > /tokens
 Session tokens: 1,234,567 (breakdown: input 12,345 · output 23,456 · cache-read 1,180,000 · cache-write 18,766)
 ```
 
-### `/handoff`
+### `/handoff:handoff`
 
 Trigger the handoff workflow manually at any time. Same instructions as the auto-handoff below, but invoked on demand (no token threshold required).
 
