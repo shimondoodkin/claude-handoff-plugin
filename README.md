@@ -2,6 +2,8 @@
 
 A Claude Code plugin that gives the agent **awareness of session token usage** and an **automatic handoff workflow** before the context window fills up.
 
+**The difference from /compact is that this command is forward looking takes all information needed to complete the tasks** 
+
 Three features:
 
 - **`/tokens`** — slash command that prints how many tokens the current session has used.
