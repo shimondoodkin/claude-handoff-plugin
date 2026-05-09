@@ -1,0 +1,17 @@
+{
+  "name": "claude-handoff-plugin",
+  "version": "0.1.0",
+  "description": "Marketplace hosting the handoff plugin for Claude Code.",
+  "repository": "https://github.com/shimondoodkin/claude-handoff-plugin",
+  "owner": {
+    "name": "Shimon Doodkin",
+    "email": "shimondoodkin@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "handoff",
+      "source": "./",
+      "description": "Session token awareness (/tokens, /handoff) and auto-handoff at 150k/200k/250k... with CronCreate auto-resume after /clear."
+    }
+  ]
+}

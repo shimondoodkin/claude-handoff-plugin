@@ -14,8 +14,17 @@ The status bar shows token usage to the user, but the agent itself can't see it.
 
 ## Install
 
+In Claude Code, run:
+
 ```text
-/plugin install shimondoodkin/claude-handoff-plugin
+/plugin marketplace add shimondoodkin/claude-handoff-plugin
+/plugin install handoff@claude-handoff-plugin
+```
+
+Or do it in one step (Claude Code will auto-add the marketplace and prompt you to install):
+
+```text
+/plugin install handoff@shimondoodkin/claude-handoff-plugin
 ```
 
 Or clone and point Claude Code at the directory:
@@ -24,7 +33,7 @@ Or clone and point Claude Code at the directory:
 git clone https://github.com/shimondoodkin/claude-handoff-plugin.git
 ```
 
-…then add it to your Claude Code plugin sources.
+…then add it via `/plugin marketplace add /path/to/claude-handoff-plugin`.
 
 ## Usage
 
