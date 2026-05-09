@@ -1,6 +1,6 @@
 {
   "name": "claude-handoff-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Marketplace hosting the handoff plugin for Claude Code.",
   "repository": "https://github.com/shimondoodkin/claude-handoff-plugin",
   "owner": {

@@ -1,15 +1,50 @@
 'use strict';
 
+const path = require('path');
+
 function fmt(n) {
   return n.toLocaleString('en-US');
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function localStamp(d) {
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` +
+    `-${pad2(d.getHours())}-${pad2(d.getMinutes())}-${pad2(d.getSeconds())}`
+  );
+}
+
+// Compute the cron string in local time. Aim for ~2 minutes from now; bump to
+// +3 if we'd land on 0 or 30 to avoid common cron boundaries.
+// Returns "<MM> <HH> <DD> <Mon> *". CronCreate interprets cron in local time,
+// and Date.get* return local time, so timezones line up.
+function computeCron(now) {
+  const target = new Date(now.getTime() + 2 * 60_000);
+  let mm = target.getMinutes();
+  if (mm === 0 || mm === 30) {
+    target.setTime(target.getTime() + 60_000);
+    mm = target.getMinutes();
+  }
+  const hh = target.getHours();
+  const dd = target.getDate();
+  const mon = target.getMonth() + 1;
+  return `${mm} ${hh} ${dd} ${mon} *`;
 }
 
 function buildReminder(tokens, sessionId, opts) {
   const manual = opts && opts.manual === true;
   const midTask = opts && opts.mid_task === true;
   const tokensK = Math.round(tokens / 1000);
-  const stamp = new Date().toISOString().replace(/[:T]/g, '-').split('.')[0];
-  const filename = `${sessionId}-${stamp}.md`;
+  const now = opts && opts.now instanceof Date ? opts.now : new Date();
+  const filename = `${sessionId}-${localStamp(now)}.md`;
+  const pluginRoot =
+    (opts && opts.pluginRoot) ||
+    process.env.CLAUDE_PLUGIN_ROOT ||
+    path.resolve(__dirname, '..', '..');
+  const cronScript = path.join(pluginRoot, 'scripts', 'compute-cron.js');
 
   let intro;
   if (manual) {
@@ -22,7 +57,7 @@ function buildReminder(tokens, sessionId, opts) {
 
   let closing;
   if (manual) {
-    closing = `User invoked /handoff explicitly. Don't ask for confirmation; do all four steps now.`;
+    closing = `User invoked /handoff explicitly. Don't ask for confirmation; do all five steps now.`;
   } else if (midTask) {
     closing = `This reminder fires once per 50k bucket above 150k (between tool calls, since mid_task_check is enabled). It will not repeat until the next 50k boundary.`;
   } else {
@@ -57,16 +92,21 @@ function buildReminder(tokens, sessionId, opts) {
     `     - what you need to know to continue (open questions, gotchas, constraints)`,
     `     - concrete next steps to complete the task`,
     ``,
-    `3. Call CronCreate with:`,
-    `     recurring: false`,
-    `     cron: "<MM> <HH> <DD> <Mon> *"`,
-    `       MM = current minute + 2 (gives the user 60-119s to /clear).`,
-    `       If current+2 lands on 0 or 30, use current+3 instead (avoid those).`,
-    `       HH/DD/Mon = whatever time current+2 lands on (handle hour/day rollover).`,
-    `     prompt: "Read ./.claude/handoffs/${filename} and continue the previous task."`,
-    `     (Keep the prompt short — long prompts hit Claude Code's paste-mode collapse.)`,
+    `3. Get a FRESH cron string by running this Bash command (do this AFTER step 2,`,
+    `   not before — writing the handoff can take longer than the 2-minute schedule`,
+    `   window, so we compute the cron at this moment using the system clock):`,
+    `     node "${cronScript}"`,
+    `   It prints a single line like "32 14 9 5 *". Use that exact string in step 4.`,
     ``,
-    `4. Reply to the user with exactly:`,
+    `4. Call CronCreate with these EXACT values:`,
+    `     recurring: false`,
+    `     cron: <the string printed by step 3>`,
+    `     prompt: "Read ./.claude/handoffs/${filename} and continue the previous task."`,
+    `   (Don't compute the cron yourself — your clock estimate is unreliable. The`,
+    `    helper script in step 3 uses the real system time. Keep the prompt short —`,
+    `    long prompts hit Claude Code's paste-mode collapse.)`,
+    ``,
+    `5. Reply to the user with exactly:`,
     userReplyLine,
     `    Scheduled auto-resume in ~60-120s. Run /clear now and the new session will pick up automatically."`,
     ``,
@@ -74,4 +114,4 @@ function buildReminder(tokens, sessionId, opts) {
   ].join('\n');
 }
 
-module.exports = { buildReminder };
+module.exports = { buildReminder, computeCron, localStamp };

@@ -1,5 +1,5 @@
 {
   "name": "handoff",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lets the agent see session token usage, and at 150k/200k/250k... auto-injects a reminder to write a forward-looking handoff file and schedule auto-resume after /clear."
 }
