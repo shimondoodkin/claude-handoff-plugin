@@ -2,10 +2,11 @@
 
 A Claude Code plugin that gives the agent **awareness of session token usage** and an **automatic handoff workflow** before the context window fills up.
 
-Two features:
+Three features:
 
 - **`/tokens`** — slash command that prints how many tokens the current session has used.
 - **Auto-handoff** — at 150k tokens (and again at every +50k boundary), a hook injects a one-shot reminder telling the agent to write a forward-looking handoff file and schedule an auto-resume prompt. After you `/clear`, the next session picks up automatically.
+- **`/handoff`** — manually trigger the same handoff workflow at any token count (e.g. before lunch, before swapping projects, mid-task when you notice things slowing down).
 
 ## Why
 
@@ -32,6 +33,14 @@ git clone https://github.com/shimondoodkin/claude-handoff-plugin.git
 ```text
 > /tokens
 Session tokens: 1,234,567 (breakdown: input 12,345 · output 23,456 · cache-read 1,180,000 · cache-write 18,766)
+```
+
+### `/handoff`
+
+Trigger the handoff workflow manually at any time. Same instructions as the auto-handoff below, but invoked on demand (no token threshold required).
+
+```text
+> /handoff
 ```
 
 ### Auto-handoff
