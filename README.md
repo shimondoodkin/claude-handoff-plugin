@@ -36,7 +36,7 @@ Session tokens: 1,234,567 (breakdown: input 12,345 · output 23,456 · cache-rea
 
 ### Auto-handoff
 
-When session tokens cross a 50k bucket boundary at or above 150k, the next prompt you send will trigger a hook that injects this instruction to the agent:
+First fire at 150k tokens, then once at every additional 50k — i.e. 150k, 200k, 250k, 300k, … (never below 150k). When a threshold is crossed, the next prompt you send triggers a hook that injects this instruction to the agent:
 
 1. Write a forward-looking handoff to `./.claude/handoffs/<sessionId>-<timestamp>.md`. Cover decisions made, user preferences, conventions established, loose ends, and concrete next steps to finish the work.
 2. Schedule a one-shot `CronCreate` job for ~60–120 seconds out, with prompt `Read ./.claude/handoffs/<file>.md and continue the previous task.`
