@@ -62,11 +62,14 @@ Create `./.claude/handoff.local.md` in any project:
 ```markdown
 ---
 notifications: true
+mid_task_check: false
 ---
 ```
 
 - `notifications: true` (default if file missing) — auto-handoff fires.
-- `notifications: false` — auto-handoff disabled. `/tokens` still works.
+- `notifications: false` — auto-handoff disabled. `/tokens` and `/handoff` still work.
+- `mid_task_check: false` (default) — check thresholds **only at the seam** between user prompts.
+- `mid_task_check: true` — **also** check after every tool call. Catches threshold crossings during long autonomous chains, but may interrupt in-flight work. Cached so the per-tool-call cost is negligible (~150 ms node startup; actual work O(new bytes since last call)).
 
 Changes take effect on the next prompt — no restart needed.
 
@@ -80,7 +83,8 @@ Add to your project's `.gitignore`:
 ## How it works
 
 - **Token count.** Claude Code writes session transcripts as JSONL at `~/.claude/projects/<sanitized-cwd>/<sessionId>.jsonl`. Each assistant line has a `message.usage` block. The plugin sums these, deduping by `message.id` to handle parallel-tool-call splits.
-- **Threshold detection.** A `UserPromptSubmit` hook computes `bucket = floor(tokens / 50_000)` and fires once per bucket ≥ 3. State is kept in `.claude/handoffs/.state/<sessionId>.json`.
+- **Threshold detection.** A `UserPromptSubmit` hook (and optionally `PostToolUse` if `mid_task_check: true`) computes `bucket = floor(tokens / 50_000)` and fires once per bucket ≥ 3. State is kept in `.claude/handoffs/.state/<sessionId>.json`.
+- **Incremental cache.** When `mid_task_check` is on, the hook would re-parse the JSONL on every tool call. Instead it caches `(byte_offset, totals, seen_ids)` in `.claude/handoffs/.cache/<sessionId>.json` and reads only the new bytes since last invocation, deduping `message.id` across batches. Cost per call: a `stat`, a small read of new bytes (typically a few KB), a small JSON write.
 - **Auto-resume.** `CronCreate` jobs are session-level (process), not conversation-level — they survive `/clear`. The cron prompt carries the literal handoff path, so the new sessionId after `/clear` doesn't matter.
 
 ## Trade-offs

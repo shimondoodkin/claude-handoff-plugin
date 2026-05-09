@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { sumUsage } = require('../scripts/lib/transcript.js');
+const { getCachedUsage } = require('../scripts/lib/cachedUsage.js');
 const { buildReminder } = require('../scripts/lib/reminder.js');
 
 const BUCKET_SIZE = 50_000;
@@ -15,10 +15,10 @@ function readSettings(cwd) {
   try {
     raw = fs.readFileSync(file, 'utf-8');
   } catch {
-    return { notifications: true };
+    return { notifications: true, mid_task_check: false };
   }
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  const settings = { notifications: true };
+  const settings = { notifications: true, mid_task_check: false };
   if (!match) return settings;
   for (const line of match[1].split(/\r?\n/)) {
     const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.+?)\s*$/);
@@ -65,6 +65,7 @@ async function main() {
     process.exit(0);
   }
 
+  const event = input.hook_event_name;
   const transcriptPath = input.transcript_path;
   const sessionId = input.session_id;
   const cwd = input.cwd || process.cwd();
@@ -72,12 +73,20 @@ async function main() {
     process.exit(0);
   }
 
+  if (event !== 'UserPromptSubmit' && event !== 'PostToolUse') {
+    process.exit(0);
+  }
+
   const settings = readSettings(cwd);
   if (settings.notifications === false) {
     process.exit(0);
   }
+  if (event === 'PostToolUse' && settings.mid_task_check !== true) {
+    process.exit(0);
+  }
 
-  const usage = sumUsage(transcriptPath);
+  const cacheDir = path.join(cwd, '.claude', 'handoffs', '.cache');
+  const usage = getCachedUsage(transcriptPath, cacheDir, sessionId);
   const bucket = Math.floor(usage.total / BUCKET_SIZE);
   if (bucket < MIN_BUCKET) {
     process.exit(0);
@@ -93,14 +102,17 @@ async function main() {
   try {
     writeState(stateFile, state);
   } catch {
-    // Non-fatal: if we can't write state, skip injecting to avoid spamming.
     process.exit(0);
   }
 
+  const reminder = buildReminder(usage.total, sessionId, {
+    mid_task: event === 'PostToolUse',
+  });
+
   const output = {
     hookSpecificOutput: {
-      hookEventName: 'UserPromptSubmit',
-      additionalContext: buildReminder(usage.total, sessionId),
+      hookEventName: event,
+      additionalContext: reminder,
     },
   };
   process.stdout.write(JSON.stringify(output));
