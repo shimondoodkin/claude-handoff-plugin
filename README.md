@@ -7,7 +7,7 @@ A Claude Code plugin that gives the agent **awareness of session token usage** a
 Three features:
 
 - **`/tokens`** — slash command that prints how many tokens the current session has used.
-- **Auto-handoff** — at 150k tokens (and again at every +50k boundary), a hook injects a one-shot reminder telling the agent to write a forward-looking handoff file and schedule an auto-resume prompt. After you `/clear`, the next session picks up automatically.
+- **Auto-handoff** — at 150k tokens (and again at every +50k boundary), a hook injects a one-shot reminder telling the agent to write a forward-looking handoff file and schedule an auto-resume prompt. The cron prompt starts with `/clear`, so the new session picks up automatically without you needing to do anything.
 - **`/handoff`** — manually trigger the same handoff workflow at any token count (e.g. before lunch, before swapping projects, mid-task when you notice things slowing down).
 
 ## Why
@@ -59,12 +59,10 @@ Trigger the handoff workflow manually at any time. Same instructions as the auto
 First fire at 150k tokens, then once at every additional 50k — i.e. 150k, 200k, 250k, 300k, … (never below 150k). When a threshold is crossed, the next prompt you send triggers a hook that injects this instruction to the agent:
 
 1. Write a forward-looking handoff to `./.claude/handoffs/<sessionId>-<timestamp>.md`. Cover decisions made, user preferences, conventions established, loose ends, and concrete next steps to finish the work.
-2. Schedule a one-shot `CronCreate` job for ~60–120 seconds out, with prompt `Read ./.claude/handoffs/<file>.md and continue the previous task.`
-3. Tell you to `/clear`.
+2. Schedule a one-shot `CronCreate` job for ~60–120 seconds out, with prompt `/clear\nRead ./.claude/handoffs/<file>.md and continue the previous task.`
+3. Tell you the auto-resume is scheduled.
 
-You run `/clear`. The cron job survives `/clear` (it lives in the Claude Code process, not the conversation), fires shortly after, and the new session picks up automatically — reading its own handoff and continuing.
-
-If you don't `/clear` in time, the cron fires in the same session anyway. The agent reads its handoff and continues. No harm done.
+When the cron fires, the leading `/clear` resets the conversation and the rest of the prompt reads the handoff and continues. Nothing for you to do — keep working until then if you want, or just wait.
 
 ## Configuration
 
@@ -96,7 +94,7 @@ Add to your project's `.gitignore`:
 - **Token count.** Claude Code writes session transcripts as JSONL at `~/.claude/projects/<sanitized-cwd>/<sessionId>.jsonl`. Each assistant line has a `message.usage` block. The plugin sums these, deduping by `message.id` to handle parallel-tool-call splits.
 - **Threshold detection.** A `UserPromptSubmit` hook (and optionally `PostToolUse` if `mid_task_check: true`) computes `bucket = floor(tokens / 50_000)` and fires once per bucket ≥ 3. State is kept in `.claude/handoffs/.state/<sessionId>.json`.
 - **Incremental cache.** When `mid_task_check` is on, the hook would re-parse the JSONL on every tool call. Instead it caches `(byte_offset, totals, seen_ids)` in `.claude/handoffs/.cache/<sessionId>.json` and reads only the new bytes since last invocation, deduping `message.id` across batches. Cost per call: a `stat`, a small read of new bytes (typically a few KB), a small JSON write.
-- **Auto-resume.** `CronCreate` jobs are session-level (process), not conversation-level — they survive `/clear`. The cron prompt carries the literal handoff path, so the new sessionId after `/clear` doesn't matter.
+- **Auto-resume.** `CronCreate` jobs are session-level (process), not conversation-level — they survive `/clear`. The cron prompt itself starts with `/clear`, so when it fires it first resets the conversation and then reads the handoff. The cron prompt carries the literal handoff path, so the new sessionId after `/clear` doesn't matter.
 
 ## Trade-offs
 
