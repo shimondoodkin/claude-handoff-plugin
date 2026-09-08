@@ -7,7 +7,7 @@ A Claude Code plugin that gives the agent **awareness of session token usage** a
 Three features:
 
 - **`/tokens`** — slash command that prints how many tokens the current session has used.
-- **Auto-handoff** — at 150k tokens (and again at every +50k boundary), a hook injects a one-shot reminder telling the agent to write a forward-looking handoff file and schedule an auto-resume prompt. The cron prompt starts with `/clear`, so the new session picks up automatically without you needing to do anything.
+- **Auto-handoff** — at 150k tokens (and again at every +50k boundary), a hook injects a one-shot reminder telling the agent to write a forward-looking handoff file. When the agent ends its turn, a `Stop` hook sees the saved file and schedules `/compact` for the next minute. The compacted session continues on its own and re-reads the handoff file, without you needing to do anything.
 - **`/handoff`** — manually trigger the same handoff workflow at any token count (e.g. before lunch, before swapping projects, mid-task when you notice things slowing down).
 
 ## Why
@@ -59,10 +59,11 @@ Trigger the handoff workflow manually at any time. Same instructions as the auto
 First fire at 150k tokens, then once at every additional 50k — i.e. 150k, 200k, 250k, 300k, … (never below 150k). When a threshold is crossed, the next prompt you send triggers a hook that injects this instruction to the agent:
 
 1. Write a forward-looking handoff to `./.claude/handoffs/<sessionId>-<timestamp>.md`. Cover decisions made, user preferences, conventions established, loose ends, and concrete next steps to finish the work.
-2. Schedule a one-shot `CronCreate` job for ~60–120 seconds out, with prompt `/clear\nRead ./.claude/handoffs/<file>.md and continue the previous task.`
-3. Tell you the auto-resume is scheduled.
+2. Tell you the handoff is written and end its turn.
 
-When the cron fires, the leading `/clear` resets the conversation and the rest of the prompt reads the handoff and continues. Nothing for you to do — keep working until then if you want, or just wait.
+The reminder frames this as a **session rotation**: save everything needed to continue to memory, `/compact` cleans up the context, then the agent re-reads the handoff fully and continues. The agent does not schedule anything itself. When its turn ends, the plugin's `Stop` hook finds the saved handoff file and schedules `/compact` for the next minute; the session continues on its own afterwards.
+
+`/compact` is used instead of `/clear` because `/clear` starts a new, empty conversation that just sits waiting for input. `/compact` keeps the same conversation, so the compaction summary carries the handoff path and the agent re-reads it in full. Nothing for you to do — keep working until then if you want, or just wait.
 
 ## Configuration
 
@@ -87,6 +88,8 @@ Add to your project's `.gitignore`:
 ```gitignore
 .claude/*.local.md
 .claude/handoffs/
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
 ```
 
 ## How it works
@@ -94,12 +97,18 @@ Add to your project's `.gitignore`:
 - **Token count.** Claude Code writes session transcripts as JSONL at `~/.claude/projects/<sanitized-cwd>/<sessionId>.jsonl`. Each assistant line has a `message.usage` block. The plugin sums these, deduping by `message.id` to handle parallel-tool-call splits.
 - **Threshold detection.** A `UserPromptSubmit` hook (and optionally `PostToolUse` if `mid_task_check: true`) computes `bucket = floor(tokens / 50_000)` and fires once per bucket ≥ 3. State is kept in `.claude/handoffs/.state/<sessionId>.json`.
 - **Incremental cache.** When `mid_task_check` is on, the hook would re-parse the JSONL on every tool call. Instead it caches `(byte_offset, totals, seen_ids)` in `.claude/handoffs/.cache/<sessionId>.json` and reads only the new bytes since last invocation, deduping `message.id` across batches. Cost per call: a `stat`, a small read of new bytes (typically a few KB), a small JSON write.
-- **Auto-resume.** `CronCreate` jobs are session-level (process), not conversation-level — they survive `/clear`. The cron prompt itself starts with `/clear`, so when it fires it first resets the conversation and then reads the handoff. The cron prompt carries the literal handoff path, so the new sessionId after `/clear` doesn't matter.
+- **Arming.** When the reminder is injected (threshold hook or `/handoff`), the state file also records `rotation: { armed, armedAt, expectedFile }` with the exact handoff filename the agent was asked to write.
+- **Stop hook.** `hooks/stop-check.js` runs at the end of every agent turn. If a rotation is armed and the handoff file exists (the expected name, or any `.md` in `.claude/handoffs/` written since arming), it schedules `/compact`:
+  - **Primary path.** Claude Code keeps durable scheduled prompts in `.claude/scheduled_tasks.json` and the session that owns `.claude/scheduled_tasks.lock` watches that file. If the lock belongs to this session (same session id, live pid), the hook appends a one-shot task `{ cron: <next minute>, prompt: "/compact" }` there. No agent involvement; you see a system message with the scheduled time.
+  - **Fallback.** The scheduler only starts watching after something has scheduled a task in the session, so on a fresh session the lock may not exist. Then the hook blocks the stop once and hands the agent exact `CronCreate` arguments (`recurring: false`, a precomputed cron, `prompt: "/compact"`). It never blocks twice (`stop_hook_active` guard).
+  - The armed state expires after 30 minutes if no handoff file appears.
+- **After compact.** The conversation is summarized in place and the session continues. The reminder told the agent that its first action after the compact is to read the handoff file in full, so that instruction survives in the summary. (Earlier versions used `/clear` plus a second read cron, but `/clear` opens a new empty conversation and the read cron was lost.)
 
 ## Trade-offs
 
 - Token count is one turn behind reality (transcript is written *after* each API response).
-- The auto-resume depends on the agent actually calling `CronCreate` when reminded. The reminder is explicit; if the agent skips it, you just type a kickoff message manually.
+- On a fresh session the first rotation may go through the fallback (the agent calls `CronCreate` once, with arguments supplied by the hook). After that the scheduler is active and later rotations are scheduled by the hook alone.
+- The `Stop` hook adds ~150 ms of node startup at the end of every turn; it exits immediately when no rotation is armed.
 - The bucket trigger is coarse: a single huge tool call could skip a bucket. The hook still fires on the next bucket reached, so no double-fire risk.
 
 ## Cross-platform

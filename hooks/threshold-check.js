@@ -4,7 +4,8 @@
 const fs = require('fs');
 const path = require('path');
 const { getCachedUsage } = require('../scripts/lib/cachedUsage.js');
-const { buildReminder } = require('../scripts/lib/reminder.js');
+const { buildReminder, handoffFilename } = require('../scripts/lib/reminder.js');
+const rotation = require('../scripts/lib/rotation.js');
 
 const BUCKET_SIZE = 50_000;
 const MIN_BUCKET = 3; // 150k
@@ -43,20 +44,6 @@ function readStdin() {
   });
 }
 
-function readState(stateFile) {
-  try {
-    const raw = fs.readFileSync(stateFile, 'utf-8');
-    const obj = JSON.parse(raw);
-    if (obj && typeof obj.last_triggered_bucket === 'number') return obj;
-  } catch {}
-  return { last_triggered_bucket: 0 };
-}
-
-function writeState(stateFile, state) {
-  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
-}
-
 async function main() {
   let input;
   try {
@@ -92,21 +79,26 @@ async function main() {
     process.exit(0);
   }
 
-  const stateFile = path.join(cwd, '.claude', 'handoffs', '.state', `${sessionId}.json`);
-  const state = readState(stateFile);
+  const state = rotation.readState(cwd, sessionId);
   if (bucket <= state.last_triggered_bucket) {
     process.exit(0);
   }
 
+  // Record the bucket and arm the rotation in one write: the Stop hook will
+  // look for the handoff file named below and then schedule /compact.
+  const now = new Date();
+  const filename = handoffFilename(sessionId, now);
   state.last_triggered_bucket = bucket;
+  state.rotation = { armed: true, armedAt: now.getTime(), expectedFile: filename };
   try {
-    writeState(stateFile, state);
+    rotation.writeState(cwd, sessionId, state);
   } catch {
     process.exit(0);
   }
 
   const reminder = buildReminder(usage.total, sessionId, {
     mid_task: event === 'PostToolUse',
+    now,
   });
 
   const output = {
